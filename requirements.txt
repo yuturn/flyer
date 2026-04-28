@@ -1,0 +1,7 @@
+flask
+flask-cors
+cryptography
+pyopenssl
+requests
+urllib3
+pymobiledevice3

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GPS模擬器">
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="/manifest.json">
+<title>GPS 模擬器</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; }
+
+  header { background: #1e293b; padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+           border-bottom: 1px solid #334155; flex-wrap: wrap; }
+  header h1 { font-size: 1.1rem; font-weight: 700; color: #38bdf8; flex: 1; }
+  .badge { background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 7px;
+           border-radius: 20px; font-weight: 600; }
+  .badge.green  { background: #22c55e; }
+  .badge.purple { background: #a855f7; }
+
+  /* 模式切換 Tab */
+  .mode-tabs { display: flex; background: #0f172a; border-radius: 10px; padding: 3px; gap: 3px; }
+  .mode-tab  { border: none; border-radius: 7px; padding: 6px 12px; font-size: 0.78rem;
+               font-weight: 600; cursor: pointer; color: #64748b; background: transparent;
+               transition: all .2s; }
+  .mode-tab.active { background: #38bdf8; color: #0f172a; }
+
+  /* GPS 精確度圈 */
+  .accuracy-ring { border: 2px solid #38bdf8; border-radius: 50%;
+                   position: absolute; pointer-events: none; opacity: .4;
+                   transition: all .5s; }
+
+  #map { flex: 1; min-height: 0; }
+
+  .panel { background: #1e293b; border-top: 1px solid #334155; padding: 12px 14px;
+           display: flex; flex-direction: column; gap: 10px; max-height: 42vh; overflow-y: auto; }
+
+  .info-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .info-box { background: #0f172a; border-radius: 8px; padding: 8px 12px; flex: 1; min-width: 100px; }
+  .info-box label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+  .info-box span  { display: block; font-size: 0.95rem; font-weight: 700; color: #38bdf8; }
+
+  .section-title { font-size: 0.75rem; color: #64748b; text-transform: uppercase;
+                   letter-spacing: .5px; margin-bottom: 4px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  .controls input  { background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+                     border-radius: 8px; padding: 8px 10px; flex: 1; min-width: 80px;
+                     font-size: 0.85rem; }
+  .controls input::placeholder { color: #475569; }
+  .btn { border: none; border-radius: 8px; padding: 9px 14px; font-weight: 600;
+         font-size: 0.82rem; cursor: pointer; transition: opacity .15s; }
+  .btn:active { opacity: .7; }
+  .btn-blue  { background: #0ea5e9; color: #fff; }
+  .btn-green { background: #22c55e; color: #fff; }
+  .btn-amber { background: #f59e0b; color: #000; }
+  .btn-red   { background: #ef4444; color: #fff; }
+  .btn-gray  { background: #475569; color: #fff; }
+
+  .teleport-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .teleport-row input { flex: 2; }
+
+  /* 確認對話框 */
+  .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+             z-index:9999; align-items:center; justify-content:center; }
+  .overlay.show { display:flex; }
+  .dialog { background:#1e293b; border:1px solid #334155; border-radius:14px;
+            padding:20px; width:88%; max-width:340px; }
+  .dialog h3 { color:#f59e0b; font-size:1rem; margin-bottom:10px; }
+  .dialog .coords { background:#0f172a; border-radius:8px; padding:10px;
+                    font-family:monospace; font-size:0.8rem; color:#94a3b8;
+                    margin-bottom:8px; line-height:1.6; }
+  .dialog .dist   { color:#ef4444; font-weight:700; font-size:0.85rem;
+                    margin-bottom:14px; }
+  .dialog-btns { display:flex; gap:8px; }
+  .dialog-btns button { flex:1; }
+
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .preset-btn { background: #334155; color: #cbd5e1; border: none; border-radius: 6px;
+                padding: 6px 10px; font-size: 0.75rem; cursor: pointer; }
+  .preset-btn:active { opacity: .7; }
+
+  #log { background: #0f172a; border-radius: 8px; padding: 8px 10px; font-size: 0.72rem;
+         color: #64748b; max-height: 80px; overflow-y: auto; font-family: monospace; }
+  #log p { margin: 1px 0; }
+  #log p.warn { color: #f59e0b; }
+  #log p.ok   { color: #22c55e; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📡 GPS 模擬器</h1>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tab-real" onclick="switchMode('real')">🛰 真實GPS</button>
+    <button class="mode-tab"        id="tab-sim"  onclick="switchMode('sim')">🤖 模擬</button>
+  </div>
+  <span class="badge" id="status-badge">停止</span>
+</header>
+
+<!-- 確認對話框 -->
+<div class="overlay" id="tp-overlay">
+  <div class="dialog">
+    <h3>⚡ 確認瞬間移動</h3>
+    <div class="coords" id="tp-info">--</div>
+    <div class="dist" id="tp-dist">--</div>
+    <div style="font-size:0.72rem;color:#64748b;margin-bottom:14px">
+      ⚠ 真實系統中此距離的瞬移會被伺服器偵測為異常
+    </div>
+    <div class="dialog-btns">
+      <button class="btn btn-gray"  onclick="closeDialog()">✕ 取消</button>
+      <button class="btn btn-amber" onclick="confirmTeleport()">⚡ 確認飛過去</button>
+    </div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="panel">
+  <!-- 即時資訊 -->
+  <div class="info-row">
+    <div class="info-box"><label>緯度</label><span id="i-lat">--</span></div>
+    <div class="info-box"><label>經度</label><span id="i-lon">--</span></div>
+    <div class="info-box"><label>速度</label><span id="i-spd">--</span></div>
+    <div class="info-box"><label>精確度</label><span id="i-acc">--</span></div>
+  </div>
+
+  <!-- 真實GPS 區塊 -->
+  <div id="panel-real">
+    <div class="section-title">🛰 真實裝置 GPS</div>
+    <div class="controls">
+      <button class="btn btn-blue"  onclick="startRealGPS()">📍 取得位置</button>
+      <button class="btn btn-green" onclick="watchRealGPS()">🔄 持續追蹤</button>
+      <button class="btn btn-red"   onclick="stopRealGPS()">■ 停止追蹤</button>
+    </div>
+    <div id="gps-status" style="font-size:0.75rem;color:#64748b;margin-top:6px">
+      尚未取得 GPS — 請按「取得位置」授權定位權限
+    </div>
+    <div style="font-size:0.72rem;color:#475569;margin-top:4px">
+      💡 iOS Safari 首次使用需允許位置存取權限
+    </div>
+  </div>
+
+  <!-- 模擬 區塊 -->
+  <div id="panel-sim" style="display:none">
+  <div>
+    <div class="section-title">移動控制</div>
+    <div class="controls">
+      <input id="inp-speed"   type="number" placeholder="速度 km/h" value="5" step="1">
+      <input id="inp-heading" type="number" placeholder="方向 0-360" value="0" step="5">
+      <button class="btn btn-green" onclick="startMove()">▶ 開始</button>
+      <button class="btn btn-red"   onclick="stopMove()">■ 停止</button>
+    </div>
+    <div class="presets" style="margin-top:6px">
+      <button class="preset-btn" onclick="setHeading(0)">↑ 北</button>
+      <button class="preset-btn" onclick="setHeading(90)">→ 東</button>
+      <button class="preset-btn" onclick="setHeading(180)">↓ 南</button>
+      <button class="preset-btn" onclick="setHeading(270)">← 西</button>
+      <button class="preset-btn" onclick="setSpeed(5)">步行 5</button>
+      <button class="preset-btn" onclick="setSpeed(10)">慢跑 10</button>
+      <button class="preset-btn" onclick="setSpeed(25)">騎車 25</button>
+    </div>
+  </div>
+
+  <!-- 瞬移 -->
+  <div>
+    <div class="section-title">⚡ 瞬間移動（飛人原理）</div>
+    <div class="teleport-row">
+      <input id="tp-lat" type="number" placeholder="緯度" step="0.0001">
+      <input id="tp-lon" type="number" placeholder="經度" step="0.0001">
+      <button class="btn btn-amber" onclick="askTeleport()">設定目的地</button>
+    </div>
+    <div class="presets" style="margin-top:6px">
+      <button class="preset-btn" onclick="fillTp(25.033964,121.564468)">台北101</button>
+      <button class="preset-btn" onclick="fillTp(22.627621,120.301647)">高雄</button>
+      <button class="preset-btn" onclick="fillTp(25.047924,121.517081)">台北車站</button>
+      <button class="preset-btn" onclick="fillTp(35.658581,139.745438)">東京</button>
+      <button class="preset-btn" onclick="fillTp(48.858844,2.294351)">巴黎</button>
+    </div>
+  </div>
+
+  <!-- 地圖點擊說明 -->
+  <div style="font-size:0.72rem; color:#475569">💡 點擊地圖任意位置可設定瞬移目的地（需確認）</div>
+
+  <!-- 架構說明 + 座標輸出 -->
+  <div style="background:#0f172a;border-radius:8px;padding:12px;border-left:3px solid #f59e0b">
+    <div style="font-size:0.75rem;color:#f59e0b;font-weight:700;margin-bottom:6px">
+      ⚠ 關於「傳給 iOS 系統」的說明
+    </div>
+    <div style="font-size:0.72rem;color:#94a3b8;line-height:1.7">
+      此網頁<b style="color:#e2e8f0">無法</b>覆蓋 iOS 系統 GPS。<br>
+      要讓所有 App 都收到模擬位置，需要透過
+      <b style="color:#38bdf8">USB + 電腦工具</b>在 OS 層注入座標：<br>
+      👉 <b style="color:#22c55e">3uTools</b>（免費）→ 工具箱 → 虛擬定位<br>
+      👉 <b style="color:#22c55e">iTools</b>（免費版可用）→ 虛擬位置<br>
+      <span style="color:#64748b">將下方座標複製到這些工具即可</span>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <div style="background:#1e293b;border-radius:6px;padding:6px 10px;font-family:monospace;font-size:0.78rem;flex:1" id="coord-copy">--</div>
+      <button class="btn btn-blue" style="padding:6px 12px;font-size:0.75rem" onclick="copyCoord()">複製座標</button>
+      <button class="btn btn-gray" style="padding:6px 12px;font-size:0.75rem" onclick="openNmea()">NMEA</button>
+    </div>
+  </div>
+
+  <!-- 日誌 -->
+  <div>
+    <div class="section-title" style="display:flex;justify-content:space-between">
+      <span>操作紀錄</span>
+      <button class="btn btn-gray" style="padding:2px 8px;font-size:0.7rem" onclick="clearAll()">清除軌跡</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ════════════════════════════════════════════════
+//  地圖初始化
+// ════════════════════════════════════════════════
+const map = L.map('map').setView([25.033964, 121.564468], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 19
+}).addTo(map);
+
+// 玩家圓點
+const playerIcon = L.divIcon({
+  html: '<div id="pdot" style="width:16px;height:16px;background:#38bdf8;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #38bdf8"></div>',
+  iconSize:[16,16], iconAnchor:[8,8]
+});
+// 真實GPS 圓點（綠色）
+const realIcon = L.divIcon({
+  html: '<div style="width:16px;height:16px;background:#22c55e;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #22c55e"></div>',
+  iconSize:[16,16], iconAnchor:[8,8]
+});
+// 目的地圓點
+const destIcon = L.divIcon({
+  html: '<div style="width:14px;height:14px;background:#f59e0b;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px #f59e0b"></div>',
+  iconSize:[14,14], iconAnchor:[7,7]
+});
+
+let marker     = L.marker([25.033964,121.564468], {icon: playerIcon}).addTo(map);
+let destMarker = null;
+let accCircle  = null;   // 精確度圈
+let polyline   = L.polyline([], {color:'#38bdf8', weight:2, opacity:.7}).addTo(map);
+let realLine   = L.polyline([], {color:'#22c55e', weight:2, opacity:.8, dashArray:'6,4'}).addTo(map);
+let trackPoints = [], realPoints = [];
+let pendingLat = null, pendingLon = null;
+
+// ════════════════════════════════════════════════
+//  模式管理
+// ════════════════════════════════════════════════
+let currentMode = 'real';   // 'real' | 'sim'
+let watchId     = null;
+let simPollId   = null;
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('tab-real').classList.toggle('active', mode==='real');
+  document.getElementById('tab-sim' ).classList.toggle('active', mode==='sim');
+  document.getElementById('panel-real').style.display = mode==='real' ? '' : 'none';
+  document.getElementById('panel-sim' ).style.display = mode==='sim'  ? '' : 'none';
+
+  if (mode === 'real') {
+    stopSimPoll();
+    marker.setIcon(realIcon);
+    setBadge('real');
+  } else {
+    stopRealGPS();
+    marker.setIcon(playerIcon);
+    startSimPoll();
+    setBadge(false);
+  }
+  log(`切換到 ${mode==='real'?'🛰 真實GPS':'🤖 模擬'} 模式`);
+}
+
+// ════════════════════════════════════════════════
+//  🛰 真實 GPS（瀏覽器 Geolocation API）
+// ════════════════════════════════════════════════
+function startRealGPS() {
+  if (!navigator.geolocation) {
+    setGpsStatus('❌ 此瀏覽器不支援 Geolocation API'); return;
+  }
+  setGpsStatus('⏳ 正在取得 GPS 位置…');
+  navigator.geolocation.getCurrentPosition(onRealPos, onRealErr, {
+    enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+  });
+}
+
+function watchRealGPS() {
+  if (!navigator.geolocation) {
+    setGpsStatus('❌ 此瀏覽器不支援 Geolocation API'); return;
+  }
+  if (watchId !== null) return;
+  setGpsStatus('🔄 持續追蹤中…');
+  setBadge('real');
+  watchId = navigator.geolocation.watchPosition(onRealPos, onRealErr, {
+    enableHighAccuracy: true, timeout: 15000, maximumAge: 1000
+  });
+  log('🛰 開始持續追蹤真實 GPS', 'ok');
+}
+
+function stopRealGPS() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    setGpsStatus('■ 追蹤已停止');
+    setBadge(false);
+    log('🛰 GPS 追蹤停止');
+  }
+  if (accCircle) { map.removeLayer(accCircle); accCircle = null; }
+}
+
+function onRealPos(pos) {
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+  const acc = pos.coords.accuracy;             // 公尺
+  const spd = pos.coords.speed || 0;           // m/s（部分裝置有）
+  const alt = pos.coords.altitude;
+  const ts  = new Date(pos.timestamp).toLocaleTimeString();
+
+  // 更新地圖
+  marker.setLatLng([lat, lon]);
+  map.setView([lat, lon], 17);
+  realPoints.push([lat, lon]);
+  if (realPoints.length > 500) realPoints.shift();
+  realLine.setLatLngs(realPoints);
+
+  // 精確度圈（視覺化誤差範圍）
+  if (accCircle) map.removeLayer(accCircle);
+  accCircle = L.circle([lat, lon], {
+    radius: acc, color:'#22c55e', fillColor:'#22c55e',
+    fillOpacity:.08, weight:1, dashArray:'4,4'
+  }).addTo(map);
+
+  // 更新資訊欄
+  document.getElementById('i-lat').textContent = lat.toFixed(6);
+  document.getElementById('i-lon').textContent = lon.toFixed(6);
+  document.getElementById('i-spd').textContent = spd != null ? (spd*3.6).toFixed(1)+' km/h' : '-- km/h';
+  document.getElementById('i-acc').textContent = '±'+acc.toFixed(0)+'m';
+
+  setGpsStatus(`✅ 位置已更新 ${ts} | 精確度 ±${acc.toFixed(0)}m${alt!=null?' | 海拔 '+alt.toFixed(0)+'m':''}`);
+  log(`🛰 真實GPS: ${lat.toFixed(5)},${lon.toFixed(5)} ±${acc.toFixed(0)}m`, 'ok');
+}
+
+function onRealErr(err) {
+  const msgs = {1:'用戶拒絕授權', 2:'無法取得位置', 3:'請求逾時'};
+  setGpsStatus(`❌ GPS 錯誤：${msgs[err.code]||err.message}`);
+  log(`GPS 錯誤: ${msgs[err.code]||err.message}`, 'warn');
+}
+
+function setGpsStatus(msg) {
+  document.getElementById('gps-status').textContent = msg;
+}
+
+// ════════════════════════════════════════════════
+//  🤖 模擬模式輪詢
+// ════════════════════════════════════════════════
+function startSimPoll() {
+  if (simPollId) return;
+  simPoll();
+  simPollId = setInterval(simPoll, 1000);
+}
+function stopSimPoll() {
+  if (simPollId) { clearInterval(simPollId); simPollId = null; }
+}
+
+async function simPoll() {
+  try {
+    const res = await fetch('/api/position');
+    const d   = await res.json();
+    marker.setLatLng([d.lat, d.lon]);
+    trackPoints.push([d.lat, d.lon]);
+    if (trackPoints.length > 300) trackPoints.shift();
+    polyline.setLatLngs(trackPoints);
+    document.getElementById('i-lat').textContent = d.lat.toFixed(6);
+    document.getElementById('i-lon').textContent = d.lon.toFixed(6);
+    document.getElementById('i-spd').textContent = (d.speed*3.6).toFixed(1)+' km/h';
+    document.getElementById('i-acc').textContent = '±'+d.accuracy+'m';
+    // 更新座標複製框
+    const cc = document.getElementById('coord-copy');
+    if (cc) cc.textContent = `${d.lat.toFixed(6)}, ${d.lon.toFixed(6)}`;
+  } catch(e) {}
+}
+
+function copyCoord() {
+  const txt = document.getElementById('coord-copy').textContent;
+  navigator.clipboard.writeText(txt).then(()=>log('✅ 座標已複製：'+txt,'ok'))
+    .catch(()=>{
+      // fallback for iOS
+      const el = document.createElement('textarea');
+      el.value = txt; document.body.appendChild(el);
+      el.select(); document.execCommand('copy');
+      document.body.removeChild(el);
+      log('✅ 座標已複製：'+txt,'ok');
+    });
+}
+
+function openNmea() {
+  window.open('/api/nmea','_blank');
+}
+
+// ════════════════════════════════════════════════
+//  模擬移動 API
+// ════════════════════════════════════════════════
+async function startMove() {
+  const speedKmh = parseFloat(document.getElementById('inp-speed').value)   || 5;
+  const heading  = parseFloat(document.getElementById('inp-heading').value) || 0;
+  await fetch('/api/set_movement', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({speed: speedKmh/3.6, heading})
+  });
+  setBadge(true);
+  log(`▶ 模擬移動 ${speedKmh} km/h 方向 ${heading}°`, 'ok');
+}
+
+async function stopMove() {
+  await fetch('/api/stop', {method:'POST'});
+  setBadge(false);
+  log('■ 模擬停止');
+}
+
+async function clearAll() {
+  await fetch('/api/clear', {method:'POST'});
+  trackPoints = []; realPoints = [];
+  polyline.setLatLngs([]); realLine.setLatLngs([]);
+  log('軌跡已清除');
+}
+
+// ════════════════════════════════════════════════
+//  瞬移（模擬模式用）
+// ════════════════════════════════════════════════
+map.on('click', e => {
+  if (currentMode !== 'sim') return;
+  fillTp(e.latlng.lat, e.latlng.lng);
+  askTeleport();
+});
+
+function fillTp(lat, lon) {
+  document.getElementById('tp-lat').value = lat;
+  document.getElementById('tp-lon').value = lon;
+}
+
+function askTeleport() {
+  const lat = parseFloat(document.getElementById('tp-lat').value);
+  const lon = parseFloat(document.getElementById('tp-lon').value);
+  if (isNaN(lat)||isNaN(lon)) { log('請先輸入目標座標'); return; }
+  pendingLat = lat; pendingLon = lon;
+
+  if (destMarker) map.removeLayer(destMarker);
+  destMarker = L.marker([lat,lon],{icon:destIcon}).addTo(map);
+
+  const curLat = parseFloat(document.getElementById('i-lat').textContent)||25.033964;
+  const curLon = parseFloat(document.getElementById('i-lon').textContent)||121.564468;
+  const dist   = haversineJS(curLat,curLon,lat,lon);
+  const distTxt = dist>=1000 ? `${(dist/1000).toFixed(1)} 公里` : `${dist.toFixed(0)} 公尺`;
+
+  document.getElementById('tp-info').innerHTML =
+    `目的地座標<br>緯度: <b>${lat.toFixed(6)}</b><br>經度: <b>${lon.toFixed(6)}</b>`;
+  document.getElementById('tp-dist').textContent =
+    `⚠ 瞬移距離：${distTxt}（正常人移動速度不可能達到）`;
+  document.getElementById('tp-overlay').classList.add('show');
+}
+
+function closeDialog() {
+  document.getElementById('tp-overlay').classList.remove('show');
+  if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+  pendingLat = pendingLon = null;
+}
+
+async function confirmTeleport() {
+  if (pendingLat===null) return;
+  const lat = pendingLat, lon = pendingLon;
+  closeDialog();
+  const res = await fetch('/api/teleport', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({lat, lon})
+  });
+  const d = await res.json();
+  map.setView([lat,lon], 15);
+  trackPoints = [[lat,lon]];
+  polyline.setLatLngs(trackPoints);
+  log(`⚡ 瞬移完成 → ${lat.toFixed(5)},${lon.toFixed(5)} (${d.distance_km} km)`, 'warn');
+}
+
+// ════════════════════════════════════════════════
+//  工具
+// ════════════════════════════════════════════════
+function haversineJS(lat1,lon1,lat2,lon2) {
+  const R=6371000, r=Math.PI/180;
+  const dLat=(lat2-lat1)*r, dLon=(lon2-lon1)*r;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function setHeading(h) { document.getElementById('inp-heading').value = h; }
+function setSpeed(s)   { document.getElementById('inp-speed').value   = s; }
+
+function setBadge(state) {
+  const b = document.getElementById('status-badge');
+  if (state==='real')    { b.textContent='🛰 真實'; b.className='badge purple'; }
+  else if (state===true) { b.textContent='移動中';  b.className='badge green';  }
+  else                   { b.textContent='停止';    b.className='badge';        }
+}
+
+function log(msg, type='') {
+  const el = document.getElementById('log');
+  const p  = document.createElement('p');
+  if (type) p.className = type;
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.insertBefore(p, el.firstChild);
+  if (el.children.length > 60) el.lastChild.remove();
+}
+
+// 預設啟動真實 GPS 模式
+switchMode('real');
+</script>
+</body>
+</html>
+
+const playerIcon = L.divIcon({
+  html: '<div style="width:16px;height:16px;background:#38bdf8;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px #38bdf8"></div>',
+  iconSize: [16,16], iconAnchor: [8,8]
+});
+let destIcon = L.divIcon({
+  html: '<div style="width:14px;height:14px;background:#f59e0b;border:3px solid #fff;border-radius:50%;box-shadow:0 0 8px #f59e0b"></div>',
+  iconSize:[14,14], iconAnchor:[7,7]
+});
+
+let marker    = L.marker([25.033964, 121.564468], {icon: playerIcon}).addTo(map);
+let destMarker = null;
+let polyline  = L.polyline([], {color:'#38bdf8', weight:2, opacity:.7}).addTo(map);
+let trackPoints = [];
+let pendingLat = null, pendingLon = null;
+
+// 點擊地圖 → 填入目的地並開啟確認框
+map.on('click', e => {
+  fillTp(e.latlng.lat, e.latlng.lng);
+  askTeleport();
+});
+
+// ── 工具函式 ──────────────────────────────
+function log(msg, type='') {
+  const el = document.getElementById('log');
+  const p  = document.createElement('p');
+  if (type) p.className = type;
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.insertBefore(p, el.firstChild);
+  if (el.children.length > 50) el.lastChild.remove();
+}
+
+function setHeading(h) { document.getElementById('inp-heading').value = h; }
+function setSpeed(s)   { document.getElementById('inp-speed').value = s; }
+
+function fillTp(lat, lon) {
+  document.getElementById('tp-lat').value = lat;
+  document.getElementById('tp-lon').value = lon;
+}
+
+function haversineJS(lat1,lon1,lat2,lon2){
+  const R=6371000, toR=Math.PI/180;
+  const dLat=(lat2-lat1)*toR, dLon=(lon2-lon1)*toR;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*toR)*Math.cos(lat2*toR)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function setBadge(running) {
+  const b = document.getElementById('status-badge');
+  b.textContent = running ? '移動中' : '停止';
+  b.className   = 'badge' + (running ? ' green' : '');
+}
+
+// ── 確認對話框 ──────────────────────────────
+function askTeleport() {
+  const lat = parseFloat(document.getElementById('tp-lat').value);
+  const lon = parseFloat(document.getElementById('tp-lon').value);
+  if (isNaN(lat)||isNaN(lon)) { log('請先輸入目標座標'); return; }
+
+  pendingLat = lat; pendingLon = lon;
+
+  // 標記目的地
+  if (destMarker) map.removeLayer(destMarker);
+  destMarker = L.marker([lat,lon],{icon:destIcon}).addTo(map);
+
+  // 計算距離
+  const curLat = parseFloat(document.getElementById('i-lat').textContent)||25.033964;
+  const curLon = parseFloat(document.getElementById('i-lon').textContent)||121.564468;
+  const dist   = haversineJS(curLat, curLon, lat, lon);
+  const distTxt = dist >= 1000
+    ? `${(dist/1000).toFixed(1)} 公里` : `${dist.toFixed(0)} 公尺`;
+
+  document.getElementById('tp-info').innerHTML =
+    `目的地座標<br>緯度: <b>${lat.toFixed(6)}</b><br>經度: <b>${lon.toFixed(6)}</b>`;
+  document.getElementById('tp-dist').textContent =
+    `⚠ 瞬移距離：${distTxt}（正常人移動速度不可能達到）`;
+
+  document.getElementById('tp-overlay').classList.add('show');
+}
+
+function closeDialog() {
+  document.getElementById('tp-overlay').classList.remove('show');
+  if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+  pendingLat = pendingLon = null;
+}
+
+async function confirmTeleport() {
+  if (pendingLat === null) return;
+  const lat = pendingLat, lon = pendingLon;
+  closeDialog();
+
+  const res = await fetch('/api/teleport', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({lat, lon})
+  });
+  const d = await res.json();
+  map.setView([lat, lon], 15);
+  trackPoints = [[lat, lon]];
+  polyline.setLatLngs(trackPoints);
+  log(`⚡ 瞬移完成 → ${lat.toFixed(5)},${lon.toFixed(5)} (${d.distance_km} km)`, 'warn');
+}
+
+// ── API 呼叫 ──────────────────────────────
+async function startMove() {
+  const speedKmh = parseFloat(document.getElementById('inp-speed').value)   || 5;
+  const speedMs  = speedKmh / 3.6;
+  const heading  = parseFloat(document.getElementById('inp-heading').value) || 0;
+  await fetch('/api/set_movement', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({speed: speedMs, heading})
+  });
+  setBadge(true);
+  log(`▶ 開始移動 ${speedKmh} km/h 方向 ${heading}°`, 'ok');
+}
+
+async function stopMove() {
+  await fetch('/api/stop', {method:'POST'});
+  setBadge(false);
+  log('■ 已停止');
+}
+
+async function clearAll() {
+  await fetch('/api/clear', {method:'POST'});
+  trackPoints = [];
+  polyline.setLatLngs([]);
+  log('軌跡已清除');
+}
+
+// ── 輪詢更新 ──────────────────────────────
+async function poll() {
+  try {
+    const res = await fetch('/api/position');
+    const d   = await res.json();
+
+    marker.setLatLng([d.lat, d.lon]);
+    trackPoints.push([d.lat, d.lon]);
+    if (trackPoints.length > 300) trackPoints.shift();
+    polyline.setLatLngs(trackPoints);
+
+    document.getElementById('i-lat').textContent = d.lat.toFixed(6);
+    document.getElementById('i-lon').textContent = d.lon.toFixed(6);
+    document.getElementById('i-spd').textContent = (d.speed * 3.6).toFixed(1) + ' km/h';
+    document.getElementById('i-acc').textContent = '±' + d.accuracy + 'm';
+  } catch(e) {}
+}
+
+setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>

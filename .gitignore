@@ -1,0 +1,24 @@
+# 憑證（綁定 IP，不應上傳）
+cert.pem
+key.pem
+gps-ca.mobileconfig
+local_ip.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# 模擬產生的資料
+simulated_track.gpx
+simulated_track.json
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+desktop.ini
