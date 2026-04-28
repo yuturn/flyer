@@ -1,7 +1,43 @@
 ﻿# GPS Simulator - 使用說明
 
 > 在瀏覽器上展示 GPS 模擬移動、真實 GPS 讀取、瞬間移動（飛人）原理的 Web 工具。
-> 支援 iPhone Safari，搭配 3uTools 可讓所有 App 收到模擬座標。
+> 支援 iPhone Safari，搭配 auto_push.py 可讓所有 App 收到模擬座標（含速度移動）。
+
+---
+
+## 快速開始（從 GitHub 下載到可用）
+
+### 第一次使用（新電腦）
+
+```powershell
+git clone https://github.com/yuturn/flyer.git
+cd flyer
+pip install -r requirements.txt
+python gen_cert.py
+python app.py
+```
+
+啟動後用手機 Safari 開啟終端機顯示的「手機」網址，
+依照 iPhone 端設定章節安裝憑證即可使用。
+
+### 之後每次使用
+
+```powershell
+cd flyer
+python app.py
+```
+
+### 同時開啟自動推送（讓 iPhone 所有 App 收到座標）
+
+開兩個 PowerShell 視窗，分別執行：
+
+```powershell
+# 視窗 1
+python app.py
+
+# 視窗 2
+python auto_push.py
+```
 
 ---
 
